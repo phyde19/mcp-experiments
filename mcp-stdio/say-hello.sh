@@ -1,8 +1,13 @@
 #!/bin/bash
 
 container="shared-box"
-command="$*"
+sandbox="/home/sandbox"
+filename="hello.txt"
 
-echo -e "command:\n$command\n"
+dexec() {
+  docker exec -it "$container" bash -c "$1"
+}
 
-docker exec -it "$container" "$command"
+dexec "mkdir -p '$sandbox'"
+dexec "touch '$sandbox/$filename'" 
+dexec "echo hello from the outside >> '$sandbox/$filename'"

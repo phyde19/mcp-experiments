@@ -3,6 +3,9 @@ command=docker
 image="llm-lite"
 container="shared-box"
 
+repl:
+	@python server/repl.py
+
 run:
 	@$(command) run -dit --name $(container) $(image) bash
 

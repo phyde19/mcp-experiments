@@ -26,3 +26,9 @@ When you run a container, Docker:
 A Docker container lives only as long as its PID 1 process lives.
 
 > That’s it. Full stop.
+
+
+### Control the user
+```bash
+docker exec -u <username|uid> container_name bash -c '...'
+```
