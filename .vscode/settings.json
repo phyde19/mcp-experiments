@@ -1,0 +1,10 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/mcp-stdio/.venv/bin/python",
+    "python.pythonPath": "${workspaceFolder}/mcp-stdio/.venv/bin/python",
+    "github.copilot.enable": {
+        "*": false,
+        "plaintext": false,
+        "markdown": false,
+        "scminput": false
+    }
+}

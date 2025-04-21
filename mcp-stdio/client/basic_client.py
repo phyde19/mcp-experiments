@@ -1,32 +1,25 @@
 #!/usr/bin/env python3
 """
-repl.py – ultra‑lean CLI chat loop with one mock tool.
------------------------------------------------------
-$ pip install --upgrade openai
-$ export OPENAI_API_KEY=sk‑...
-$ python repl.py
+repl.py – single‑file demo of correct OpenAI tool‑calling order.
 """
 
 from __future__ import annotations
-
-import os
-import random
-import sys
-from typing import List, Dict, Any
-
+import json, os, random, sys
+from typing import Dict, List, Any
 import openai
 
-# ---- mock tool ---------------------------------------------------------------
-
+# ─── mock tool ────────────────────────────────────────────────────────────────
 _WEATHER = ("sunny", "rainy", "cloudy")
 
 
 def get_weather() -> str:
-    """Return a random weather condition."""
+    """Return a random weather condition (demo stub)."""
     return random.choice(_WEATHER)
 
 
-# ---- OpenAI plumbing ---------------------------------------------------------
+AVAILABLE_TOOLS = {
+    "get_weather": get_weather,
+}
 
 TOOLS: List[Dict[str, Any]] = [
     {
@@ -34,78 +27,84 @@ TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "get_weather",
             "description": "Returns the current weather (mock).",
-            "parameters": {
-                "type": "object",
-                "properties": {},  # no args
-                "required": [],
-            },
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     }
 ]
 
-client = openai.OpenAI()  # picks up OPENAI_API_KEY
+client = openai.OpenAI()  # uses $OPENAI_API_KEY
 
 
-def chat_completion(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Ship a single request to OpenAI and return the raw response object."""
-    return client.chat.completions.create(
-        model="gpt-4o",          # swap for the exact 4.1 model name when available
-        messages=messages,
-        tools=TOOLS,
-        tool_choice="auto",
+def get_openai_response(messages: List[Dict[str, Any]]):
+    return client.chat.completions.create( 
+        model="o4-mini", messages=messages, tools=TOOLS, tool_choice="auto"
     )
 
-
-# ---- REPL driver -------------------------------------------------------------
-
-def main() -> None:
-    history: List[Dict[str, Any]] = [
-        {"role": "system", "content": "You are a concise, capable assistant."}
-    ]
-
+def get_user_message() -> str:
     while True:
         try:
-            user_text = input(">>> ").strip()
+            prompt = input(">>> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nbye.")
             break
-
-        if not user_text:
+        if not prompt:
             continue
+        return prompt
 
-        history.append({"role": "user", "content": user_text})
 
-        # loop because a single turn may include tool‑call → tool‑result → follow‑up
+def get_tool_call_result(call):
+    fn_name = call.function.name
+    fn_args = (
+        json.loads(call.function.arguments or "{}")  # no‑arg tool here
+    )
+    fn = AVAILABLE_TOOLS.get(fn_name)
+    if fn is None:
+        raise RuntimeError(f"Unknown tool requested: {fn_name}")
+    return fn(**fn_args) if fn_args else fn()
+
+
+# ─── REPL ─────────────────────────────────────────────────────────────────────
+system_message = f"""
+"""
+def main() -> None:
+    history: List[Dict[str, Any]] = [
+        {"role": "system", "content": system_message}
+    ]
+
+    while True:
+        # get user message
+        user_message = get_user_message()
+        history.append({"role": "user", "content": user_message})
+
         while True:
-            resp = chat_completion(history)
-            msg = resp.choices[0].message
+            # get assistant message
+            resp = get_openai_response(history)
+            assistant_msg = resp.choices[0].message
 
-            # Did the model request a tool?
-            if msg.tool_calls:
-                call = msg.tool_calls[0]  # we only defined one tool
-                if call.function.name == "get_weather":
-                    tool_result = get_weather()
-                    history.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call.id,
-                            "name": "get_weather",
-                            "content": tool_result,
-                        }
-                    )
-                    # Let the model integrate the tool result
-                    continue
-                else:  # unknown tool – shouldn't happen
-                    print("?? requested unknown tool:", call.function.name, file=sys.stderr)
-                    break
+            # append assistant message which may contain tool calls
+            history.append(assistant_msg)
 
-            # Normal assistant reply
-            history.append(msg)
-            print(msg.content, "\n")
-            break
+            tool_calls = assistant_msg.tool_calls
+            if not tool_calls:
+                # regular Assistant response
+                # print the message, break the loop, get the next user message
+                print(assistant_msg.content, "\n")
+                break
+
+            # Step‑2: assistant *wants* a tool
+            for call in tool_calls:
+                result = get_tool_call_result(call)
+                history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "name": call.function.name,
+                        "content": result,
+                    }
+                )
 
 
 if __name__ == "__main__":
     if "OPENAI_API_KEY" not in os.environ:
-        sys.exit("Set OPENAI_API_KEY first.")
+        sys.exit("✖  Set OPENAI_API_KEY first.")
     main()
